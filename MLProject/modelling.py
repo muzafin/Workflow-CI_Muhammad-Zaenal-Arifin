@@ -1,8 +1,6 @@
 """
-modelling.py  (versi MLProject – dengan argparse)
+modelling.py  (versi MLProject – tanpa start_run internal)
 Digunakan dalam MLflow Project dan GitHub Actions CI.
-
-Author : Muhammad Zaenal Arifin
 """
 
 import os
@@ -20,8 +18,7 @@ warnings.filterwarnings("ignore")
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score, classification_report,
-    confusion_matrix
+    f1_score, roc_auc_score, confusion_matrix
 )
 
 TARGET_COL   = "quality_label"
@@ -51,9 +48,16 @@ def load_data():
     return X_train, X_test, y_train, y_test
 
 
-def train_and_log(args, X_train, X_test, y_train, y_test):
-    """Melakukan training dan logging ke MLflow (menggunakan active run yang sudah ada)."""
-    # Parameter
+def main():
+    args = parse_args()
+
+    mlflow.set_tracking_uri(MLFLOW_URI)
+    mlflow.set_experiment(EXPERIMENT)
+
+    X_train, X_test, y_train, y_test = load_data()
+    print(f"Train: {X_train.shape} | Test: {X_test.shape}")
+
+    # Parameter model
     params = {
         "n_estimators":      args.n_estimators,
         "max_depth":         args.max_depth,
@@ -63,7 +67,7 @@ def train_and_log(args, X_train, X_test, y_train, y_test):
     }
     mlflow.log_params(params)
 
-    # Train
+    # Training
     model = RandomForestClassifier(**params)
     model.fit(X_train, y_train)
 
@@ -71,11 +75,11 @@ def train_and_log(args, X_train, X_test, y_train, y_test):
     y_proba = model.predict_proba(X_test)[:, 1]
 
     # Metrics
-    acc   = accuracy_score(y_test, y_pred)
-    prec  = precision_score(y_test, y_pred)
-    rec   = recall_score(y_test, y_pred)
-    f1    = f1_score(y_test, y_pred)
-    auc   = roc_auc_score(y_test, y_proba)
+    acc  = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred)
+    rec  = recall_score(y_test, y_pred)
+    f1   = f1_score(y_test, y_pred)
+    auc  = roc_auc_score(y_test, y_proba)
 
     mlflow.log_metric("accuracy",  acc)
     mlflow.log_metric("precision", prec)
@@ -86,10 +90,10 @@ def train_and_log(args, X_train, X_test, y_train, y_test):
     print(f"\nAccuracy: {acc:.4f} | Precision: {prec:.4f} | "
           f"Recall: {rec:.4f} | F1: {f1:.4f} | AUC: {auc:.4f}")
 
-    # Log model + artefak
+    # Log model MLflow
     mlflow.sklearn.log_model(model, "random_forest_model")
 
-    # Confusion matrix
+    # Confusion matrix plot
     cm = confusion_matrix(y_test, y_pred)
     fig, ax = plt.subplots(figsize=(5, 4))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
@@ -102,39 +106,13 @@ def train_and_log(args, X_train, X_test, y_train, y_test):
     mlflow.log_artifact("confusion_matrix.png")
     plt.close()
 
-    # Simpan model pkl
+    # Simpan model.pkl lokal
     model_file = "model.pkl"
     joblib.dump(model, model_file)
     mlflow.log_artifact(model_file)
 
     run_id = mlflow.active_run().info.run_id
     print(f"Run ID: {run_id}")
-
-
-def main():
-    args = parse_args()
-
-    mlflow.set_tracking_uri(MLFLOW_URI)
-    mlflow.set_experiment(EXPERIMENT)
-
-    X_train, X_test, y_train, y_test = load_data()
-    print(f"Train: {X_train.shape} | Test: {X_test.shape}")
-
-    # Cek apakah sudah ada active run (misal dari `mlflow run` di CI)
-    active_run = mlflow.active_run()
-    run_managed_by_us = False
-
-    if active_run is None:
-        # Tidak ada active run → kita buat sendiri
-        mlflow.start_run(run_name="RF_CI_run")
-        run_managed_by_us = True
-
-    try:
-        train_and_log(args, X_train, X_test, y_train, y_test)
-    finally:
-        if run_managed_by_us:
-            mlflow.end_run()
-
     print("\n✓ Training selesai!")
 
 
