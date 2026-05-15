@@ -112,7 +112,7 @@ def main():
     args = parse_args()
 
     mlflow.set_tracking_uri(MLFLOW_URI)
-    mlflow.set_experiment(EXPERIMENT)
+    # mlflow.set_experiment(EXPERIMENT)
 
     X_train, X_test, y_train, y_test = load_data()
     print(f"Train: {X_train.shape} | Test: {X_test.shape}")
@@ -123,7 +123,7 @@ def main():
 
     if active_run is None:
         # Tidak ada active run → kita buat sendiri
-        mlflow.start_run(run_name="RF_CI_run")
+        mlflow.start_run()
         run_managed_by_us = True
 
     try:
