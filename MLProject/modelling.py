@@ -1,6 +1,8 @@
 """
-modelling.py  (versi MLProject – tanpa start_run internal)
+modelling.py  (versi MLProject – dengan argparse)
 Digunakan dalam MLflow Project dan GitHub Actions CI.
+
+Author : Muhammad Zaenal Arifin
 """
 
 import os
@@ -18,7 +20,8 @@ warnings.filterwarnings("ignore")
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score, confusion_matrix
+    f1_score, roc_auc_score, classification_report,
+    confusion_matrix
 )
 
 TARGET_COL   = "quality_label"
@@ -48,66 +51,6 @@ def load_data():
     return X_train, X_test, y_train, y_test
 
 
-def train_and_log(args, X_train, X_test, y_train, y_test):
-    """Melakukan training dan logging ke MLflow (menggunakan active run yang sudah ada)."""
-    # Parameter
-    params = {
-        "n_estimators":      args.n_estimators,
-        "max_depth":         args.max_depth,
-        "min_samples_split": args.min_samples_split,
-        "max_features":      args.max_features,
-        "random_state":      args.random_state,
-    }
-    mlflow.log_params(params)
-
-    # Train
-    model = RandomForestClassifier(**params)
-    model.fit(X_train, y_train)
-
-    y_pred  = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
-
-    # Metrics
-    acc   = accuracy_score(y_test, y_pred)
-    prec  = precision_score(y_test, y_pred)
-    rec   = recall_score(y_test, y_pred)
-    f1    = f1_score(y_test, y_pred)
-    auc   = roc_auc_score(y_test, y_proba)
-
-    mlflow.log_metric("accuracy",  acc)
-    mlflow.log_metric("precision", prec)
-    mlflow.log_metric("recall",    rec)
-    mlflow.log_metric("f1_score",  f1)
-    mlflow.log_metric("roc_auc",   auc)
-
-    print(f"\nAccuracy: {acc:.4f} | Precision: {prec:.4f} | "
-          f"Recall: {rec:.4f} | F1: {f1:.4f} | AUC: {auc:.4f}")
-
-    # Log model + artefak
-    mlflow.sklearn.log_model(model, "random_forest_model")
-
-    # Confusion matrix
-    cm = confusion_matrix(y_test, y_pred)
-    fig, ax = plt.subplots(figsize=(5, 4))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                xticklabels=["bad", "good"],
-                yticklabels=["bad", "good"], ax=ax)
-    ax.set_xlabel("Predicted"); ax.set_ylabel("Actual")
-    ax.set_title("Confusion Matrix")
-    plt.tight_layout()
-    fig.savefig("confusion_matrix.png")
-    mlflow.log_artifact("confusion_matrix.png")
-    plt.close()
-
-    # Simpan model pkl
-    model_file = "model.pkl"
-    joblib.dump(model, model_file)
-    mlflow.log_artifact(model_file)
-
-    run_id = mlflow.active_run().info.run_id
-    print(f"Run ID: {run_id}")
-
-
 def main():
     args = parse_args()
 
@@ -117,23 +60,64 @@ def main():
     X_train, X_test, y_train, y_test = load_data()
     print(f"Train: {X_train.shape} | Test: {X_test.shape}")
 
-    # Cek apakah sudah ada active run (misal dari `mlflow run` di CI)
-    active_run = mlflow.active_run()
-    run_managed_by_us = False
+    with mlflow.start_run(run_name="RF_CI_run"):
+        # Params
+        params = {
+            "n_estimators":      args.n_estimators,
+            "max_depth":         args.max_depth,
+            "min_samples_split": args.min_samples_split,
+            "max_features":      args.max_features,
+            "random_state":      args.random_state,
+        }
+        mlflow.log_params(params)
 
-    if active_run is None:
-        # Tidak ada active run → kita buat sendiri
-        mlflow.start_run(run_name="RF_CI_run")
-        run_managed_by_us = True
+        # Train
+        model = RandomForestClassifier(**params)
+        model.fit(X_train, y_train)
 
-    try:
-        train_and_log(args, X_train, X_test, y_train, y_test)
-    finally:
-        if run_managed_by_us:
-            mlflow.end_run()
+        y_pred  = model.predict(X_test)
+        y_proba = model.predict_proba(X_test)[:, 1]
 
-    run_id = mlflow.active_run().info.run_id
-    print(f"Run ID: {run_id}")
+        # Metrics
+        acc   = accuracy_score(y_test, y_pred)
+        prec  = precision_score(y_test, y_pred)
+        rec   = recall_score(y_test, y_pred)
+        f1    = f1_score(y_test, y_pred)
+        auc   = roc_auc_score(y_test, y_proba)
+
+        mlflow.log_metric("accuracy",  acc)
+        mlflow.log_metric("precision", prec)
+        mlflow.log_metric("recall",    rec)
+        mlflow.log_metric("f1_score",  f1)
+        mlflow.log_metric("roc_auc",   auc)
+
+        print(f"\nAccuracy: {acc:.4f} | Precision: {prec:.4f} | "
+              f"Recall: {rec:.4f} | F1: {f1:.4f} | AUC: {auc:.4f}")
+
+        # Log model + artefak
+        mlflow.sklearn.log_model(model, "random_forest_model")
+
+        # Confusion matrix
+        cm = confusion_matrix(y_test, y_pred)
+        fig, ax = plt.subplots(figsize=(5, 4))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                    xticklabels=["bad", "good"],
+                    yticklabels=["bad", "good"], ax=ax)
+        ax.set_xlabel("Predicted"); ax.set_ylabel("Actual")
+        ax.set_title("Confusion Matrix")
+        plt.tight_layout()
+        fig.savefig("confusion_matrix.png")
+        mlflow.log_artifact("confusion_matrix.png")
+        plt.close()
+
+        # Simpan model pkl
+        model_file = "model.pkl"
+        joblib.dump(model, model_file)
+        mlflow.log_artifact(model_file)
+
+        run_id = mlflow.active_run().info.run_id
+        print(f"Run ID: {run_id}")
+
     print("\n✓ Training selesai!")
 
 

@@ -87,7 +87,6 @@ jobs:
           MLFLOW_TRACKING_URI: mlruns
         run: |
           mlflow run . \
-            --experiment-name="Wine_Quality_CI" \
             -P n_estimators=200 \
             -P max_depth=12 \
             -P min_samples_split=2 \
