@@ -55,20 +55,12 @@ def main():
     args = parse_args()
 
     mlflow.set_tracking_uri(MLFLOW_URI)
-    # mlflow.set_experiment(EXPERIMENT)
+    mlflow.set_experiment(EXPERIMENT)
 
     X_train, X_test, y_train, y_test = load_data()
     print(f"Train: {X_train.shape} | Test: {X_test.shape}")
 
-    # Pastikan ada active run; jika tidak, kita buat dan tangani penutupannya
-    active_run = mlflow.active_run()
-    run_managed_by_us = False
-
-    if active_run is None:
-        mlflow.start_run(run_name="RF_CI_run")
-        run_managed_by_us = True
-
-    try:
+    with mlflow.start_run(run_name="RF_CI_run"):
         # Params
         params = {
             "n_estimators":      args.n_estimators,
@@ -125,9 +117,7 @@ def main():
 
         run_id = mlflow.active_run().info.run_id
         print(f"Run ID: {run_id}")
-    finally:
-        if run_managed_by_us:
-            mlflow.end_run()
+
     print("\n✓ Training selesai!")
 
 
