@@ -1,0 +1,139 @@
+name: MLflow CI – Wine Quality RF
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "MLProject/**"
+  workflow_dispatch:
+
+jobs:
+  train-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MLProject
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Python ──────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.7"
+
+      # ── 3. Install dependencies ───────────────────────
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install mlflow==2.19.0 scikit-learn==1.5.2 \
+                      pandas==2.2.3 numpy==1.26.4 \
+                      matplotlib==3.9.2 seaborn==0.13.2 \
+                      joblib==1.4.2 requests==2.32.3
+
+      # ── 4. Download & preprocess dataset ─────────────
+      - name: Download and preprocess dataset
+        run: |
+          python - <<'EOF'
+          import os, sys
+          sys.path.insert(0, os.getcwd())
+
+          import pandas as pd
+          import numpy as np
+          from sklearn.model_selection import train_test_split
+          from sklearn.preprocessing import StandardScaler
+
+          url = ("https://archive.ics.uci.edu/ml/machine-learning-databases/"
+                 "wine-quality/winequality-red.csv")
+          df = pd.read_csv(url, sep=";")
+
+          # Preprocessing
+          df["quality_label"] = (df["quality"] >= 7).astype(int)
+          df = df.drop(columns=["quality"])
+          df = df.drop_duplicates().reset_index(drop=True)
+
+          for col in df.select_dtypes(include=[np.number]).columns:
+              if df[col].isnull().sum() > 0:
+                  df[col].fillna(df[col].median(), inplace=True)
+
+          feature_cols = [c for c in df.columns if c != "quality_label"]
+          for col in feature_cols:
+              Q1, Q3 = df[col].quantile(0.25), df[col].quantile(0.75)
+              IQR = Q3 - Q1
+              df[col] = df[col].clip(Q1 - 1.5*IQR, Q3 + 1.5*IQR)
+
+          X = df.drop(columns=["quality_label"])
+          y = df["quality_label"]
+          scaler = StandardScaler()
+          X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
+
+          X_train, X_test, y_train, y_test = train_test_split(
+              X_scaled, y, test_size=0.2, random_state=42, stratify=y)
+
+          os.makedirs("winequality_preprocessing", exist_ok=True)
+          train_df = X_train.copy(); train_df["quality_label"] = y_train.values
+          test_df  = X_test.copy();  test_df["quality_label"]  = y_test.values
+          train_df.to_csv("winequality_preprocessing/train.csv", index=False)
+          test_df.to_csv("winequality_preprocessing/test.csv",   index=False)
+          print("Preprocessing selesai!")
+          EOF
+
+      # ── 5. Run MLflow Project ────────────────────────
+      - name: Run MLflow Project
+        env:
+          MLFLOW_TRACKING_URI: mlruns
+        run: |
+          mlflow run . \
+            -P n_estimators=200 \
+            -P max_depth=12 \
+            -P min_samples_split=2 \
+            -P max_features=sqrt \
+            --env-manager local
+
+      # ── 6. Upload artefak ke GitHub ───────────────────
+      - name: Upload MLflow artifacts to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-artifacts-${{ github.run_number }}
+          path: |
+            MLProject/mlruns/
+            MLProject/model.pkl
+            MLProject/confusion_matrix.png
+          retention-days: 30
+
+      # ── 7. Build Docker Image (Advanced) ──────────────
+      - name: Build Docker Image with MLflow
+        run: |
+          # Ambil run ID terbaru
+          RUN_ID=$(python - <<'EOF'
+          import mlflow
+          mlflow.set_tracking_uri("mlruns")
+          client = mlflow.tracking.MlflowClient()
+          exp = client.get_experiment_by_name("Wine_Quality_CI")
+          runs = client.search_runs(exp.experiment_id, order_by=["start_time DESC"], max_results=1)
+          print(runs[0].info.run_id)
+          EOF
+          )
+          echo "Run ID: $RUN_ID"
+          mlflow models build-docker \
+            --model-uri "runs:/$RUN_ID/random_forest_model" \
+            --name "wine-quality-rf" \
+            --enable-mlserver
+
+      # ── 8. Push ke Docker Hub ─────────────────────────
+      - name: Push Docker Image to Docker Hub
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          docker tag wine-quality-rf \
+            $DOCKER_USERNAME/wine-quality-rf:${{ github.run_number }}
+          docker tag wine-quality-rf \
+            $DOCKER_USERNAME/wine-quality-rf:latest
+          docker push $DOCKER_USERNAME/wine-quality-rf:${{ github.run_number }}
+          docker push $DOCKER_USERNAME/wine-quality-rf:latest
+          echo "Docker image pushed: $DOCKER_USERNAME/wine-quality-rf:latest"
