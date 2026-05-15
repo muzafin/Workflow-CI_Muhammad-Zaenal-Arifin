@@ -105,14 +105,36 @@ jobs:
 
       # ── 7. Build Docker Image (Advanced) ──────────────
       - name: Build Docker Image with MLflow
+        env:
+          MLFLOW_TRACKING_URI: mlruns
         run: |
           RUN_ID=$(python - <<'EOF'
-          import mlflow
+          import mlflow, sys
           mlflow.set_tracking_uri("mlruns")
           client = mlflow.tracking.MlflowClient()
-          exp = client.get_experiment_by_name("Wine_Quality_CI")
-          runs = client.search_runs(exp.experiment_id, order_by=["start_time DESC"], max_results=1)
-          print(runs[0].info.run_id)
+
+          # Cari di semua experiment, ambil run terbaru
+          experiments = client.search_experiments()
+          if not experiments:
+              print("ERROR: tidak ada experiment ditemukan", file=sys.stderr)
+              sys.exit(1)
+
+          all_runs = []
+          for exp in experiments:
+              runs = client.search_runs(
+                  exp.experiment_id,
+                  order_by=["start_time DESC"],
+                  max_results=1
+              )
+              all_runs.extend(runs)
+
+          if not all_runs:
+              print("ERROR: tidak ada run ditemukan", file=sys.stderr)
+              sys.exit(1)
+
+          # Pilih run paling baru
+          latest = sorted(all_runs, key=lambda r: r.info.start_time, reverse=True)[0]
+          print(latest.info.run_id)
           EOF
           )
           echo "Run ID: $RUN_ID"
