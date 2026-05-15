@@ -132,8 +132,8 @@ def main():
         if run_managed_by_us:
             mlflow.end_run()
 
-    run_id = mlflow.active_run().info.run_id
-    print(f"Run ID: {run_id}")
+    # run_id = mlflow.active_run().info.run_id
+    # print(f"Run ID: {run_id}")
     print("\n✓ Training selesai!")
 
 
