@@ -50,7 +50,6 @@ jobs:
                  "wine-quality/winequality-red.csv")
           df = pd.read_csv(url, sep=";")
 
-          # Preprocessing
           df["quality_label"] = (df["quality"] >= 7).astype(int)
           df = df.drop(columns=["quality"])
           df = df.drop_duplicates().reset_index(drop=True)
@@ -107,7 +106,6 @@ jobs:
       # ── 7. Build Docker Image (Advanced) ──────────────
       - name: Build Docker Image with MLflow
         run: |
-          # Ambil run ID terbaru
           RUN_ID=$(python - <<'EOF'
           import mlflow
           mlflow.set_tracking_uri("mlruns")
@@ -121,7 +119,8 @@ jobs:
           mlflow models build-docker \
             --model-uri "runs:/$RUN_ID/random_forest_model" \
             --name "wine-quality-rf" \
-            --enable-mlserver
+            --enable-mlserver \
+            --env-manager conda
 
       # ── 8. Push ke Docker Hub ─────────────────────────
       - name: Push Docker Image to Docker Hub
