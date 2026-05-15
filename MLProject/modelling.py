@@ -1,8 +1,6 @@
 """
-modelling.py  (versi MLProject – dengan argparse)
+modelling.py  (versi MLProject – tanpa start_run internal)
 Digunakan dalam MLflow Project dan GitHub Actions CI.
-
-Author : Muhammad Zaenal Arifin
 """
 
 import os
@@ -20,8 +18,7 @@ warnings.filterwarnings("ignore")
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score, classification_report,
-    confusion_matrix
+    f1_score, roc_auc_score, confusion_matrix
 )
 
 TARGET_COL   = "quality_label"
@@ -135,6 +132,8 @@ def main():
         if run_managed_by_us:
             mlflow.end_run()
 
+    run_id = mlflow.active_run().info.run_id
+    print(f"Run ID: {run_id}")
     print("\n✓ Training selesai!")
 
 
