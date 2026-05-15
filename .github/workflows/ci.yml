@@ -103,8 +103,9 @@ jobs:
             MLProject/confusion_matrix.png
           retention-days: 30
 
-      # ── 7. Build Docker Image (Advanced) ──────────────
-      - name: Build Docker Image with MLflow
+      # ── 7. Ambil Run ID terbaru ───────────────────────
+      - name: Get latest MLflow Run ID
+        id: get_run_id
         env:
           MLFLOW_TRACKING_URI: mlruns
         run: |
@@ -113,7 +114,6 @@ jobs:
           mlflow.set_tracking_uri("mlruns")
           client = mlflow.tracking.MlflowClient()
 
-          # Cari di semua experiment, ambil run terbaru
           experiments = client.search_experiments()
           if not experiments:
               print("ERROR: tidak ada experiment ditemukan", file=sys.stderr)
@@ -132,19 +132,31 @@ jobs:
               print("ERROR: tidak ada run ditemukan", file=sys.stderr)
               sys.exit(1)
 
-          # Pilih run paling baru
           latest = sorted(all_runs, key=lambda r: r.info.start_time, reverse=True)[0]
           print(latest.info.run_id)
           EOF
           )
           echo "Run ID: $RUN_ID"
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+      # ── 8. Build Docker Image ─────────────────────────
+      # FIX: Pakai --env-manager local agar tidak bergantung pada conda
+      # di dalam Docker build. Conda mewajibkan accept ToS secara interaktif
+      # sejak versi terbaru (Anaconda repo), sehingga build di CI selalu gagal.
+      # Dengan local, dependencies diinstall via pip langsung ke image.
+      - name: Build Docker Image with MLflow
+        env:
+          MLFLOW_TRACKING_URI: mlruns
+        run: |
+          RUN_ID="${{ steps.get_run_id.outputs.run_id }}"
+          echo "Building Docker image for Run ID: $RUN_ID"
           mlflow models build-docker \
             --model-uri "runs:/$RUN_ID/random_forest_model" \
             --name "wine-quality-rf" \
             --enable-mlserver \
-            --env-manager conda
+            --env-manager local
 
-      # ── 8. Push ke Docker Hub ─────────────────────────
+      # ── 9. Push ke Docker Hub ─────────────────────────
       - name: Push Docker Image to Docker Hub
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
