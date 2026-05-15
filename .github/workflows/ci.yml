@@ -123,6 +123,7 @@ jobs:
             --model-uri "runs:/$RUN_ID/random_forest_model" \
             --name "wine-quality-rf" \
             --enable-mlserver
+            --env-manager conda
 
       # ── 8. Push ke Docker Hub ─────────────────────────
       - name: Push Docker Image to Docker Hub
