@@ -6,6 +6,7 @@ Author : Muhammad Zaenal Arifin
 """
 
 import os
+import contextlib
 import argparse
 import pandas as pd
 import numpy as np
@@ -20,9 +21,10 @@ warnings.filterwarnings("ignore")
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score, classification_report,
+    f1_score, roc_auc_score,
     confusion_matrix
 )
+from mlflow.models.signature import infer_signature
 
 TARGET_COL   = "quality_label"
 TRAIN_PATH   = "winequality_preprocessing/train.csv"
@@ -33,11 +35,11 @@ EXPERIMENT   = "Wine_Quality_CI"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train Wine Quality RF model")
-    parser.add_argument("--n_estimators",     type=int,   default=200)
-    parser.add_argument("--max_depth",        type=int,   default=12)
-    parser.add_argument("--min_samples_split",type=int,   default=2)
-    parser.add_argument("--max_features",     type=str,   default="sqrt")
-    parser.add_argument("--random_state",     type=int,   default=42)
+    parser.add_argument("--n_estimators",      type=int, default=200)
+    parser.add_argument("--max_depth",         type=int, default=12)
+    parser.add_argument("--min_samples_split", type=int, default=2)
+    parser.add_argument("--max_features",      type=str, default="sqrt")
+    parser.add_argument("--random_state",      type=int, default=42)
     return parser.parse_args()
 
 
@@ -56,21 +58,21 @@ def main():
 
     mlflow.set_tracking_uri(MLFLOW_URI)
 
-    # Jika dipanggil via `mlflow run .`, run sudah aktif secara otomatis.
-    # Jika dijalankan langsung (python modelling.py), buat run baru.
-    active_run = mlflow.active_run()
-    if active_run is None:
+    # Saat dipanggil via `mlflow run .`, env var MLFLOW_RUN_ID sudah di-set
+    # oleh MLflow Project runner — jangan panggil start_run() lagi.
+    # Saat dijalankan langsung (python modelling.py), buat run baru.
+    if os.environ.get("MLFLOW_RUN_ID"):
+        # Dipanggil via mlflow run — run sudah dikelola oleh MLflow Project
+        ctx = contextlib.nullcontext()
+    else:
+        # Dijalankan langsung
         mlflow.set_experiment(EXPERIMENT)
         ctx = mlflow.start_run(run_name="RF_CI_run")
-    else:
-        import contextlib
-        ctx = contextlib.nullcontext(active_run)
 
     X_train, X_test, y_train, y_test = load_data()
     print(f"Train: {X_train.shape} | Test: {X_test.shape}")
 
     with ctx:
-        # Params
         params = {
             "n_estimators":      args.n_estimators,
             "max_depth":         args.max_depth,
@@ -88,11 +90,11 @@ def main():
         y_proba = model.predict_proba(X_test)[:, 1]
 
         # Metrics
-        acc   = accuracy_score(y_test, y_pred)
-        prec  = precision_score(y_test, y_pred)
-        rec   = recall_score(y_test, y_pred)
-        f1    = f1_score(y_test, y_pred)
-        auc   = roc_auc_score(y_test, y_proba)
+        acc  = accuracy_score(y_test, y_pred)
+        prec = precision_score(y_test, y_pred)
+        rec  = recall_score(y_test, y_pred)
+        f1   = f1_score(y_test, y_pred)
+        auc  = roc_auc_score(y_test, y_proba)
 
         mlflow.log_metric("accuracy",  acc)
         mlflow.log_metric("precision", prec)
@@ -104,7 +106,6 @@ def main():
               f"Recall: {rec:.4f} | F1: {f1:.4f} | AUC: {auc:.4f}")
 
         # Log model + signature
-        from mlflow.models.signature import infer_signature
         signature = infer_signature(X_train, model.predict(X_train))
         mlflow.sklearn.log_model(
             model,
@@ -127,12 +128,10 @@ def main():
         plt.close()
 
         # Simpan model pkl
-        model_file = "model.pkl"
-        joblib.dump(model, model_file)
-        mlflow.log_artifact(model_file)
+        joblib.dump(model, "model.pkl")
+        mlflow.log_artifact("model.pkl")
 
-        run_id = mlflow.active_run().info.run_id
-        print(f"Run ID: {run_id}")
+        print(f"Run ID: {mlflow.active_run().info.run_id}")
 
     print("\n✓ Training selesai!")
 
