@@ -55,12 +55,21 @@ def main():
     args = parse_args()
 
     mlflow.set_tracking_uri(MLFLOW_URI)
-    mlflow.set_experiment(EXPERIMENT)
+
+    # Jika dipanggil via `mlflow run .`, run sudah aktif secara otomatis.
+    # Jika dijalankan langsung (python modelling.py), buat run baru.
+    active_run = mlflow.active_run()
+    if active_run is None:
+        mlflow.set_experiment(EXPERIMENT)
+        ctx = mlflow.start_run(run_name="RF_CI_run")
+    else:
+        import contextlib
+        ctx = contextlib.nullcontext(active_run)
 
     X_train, X_test, y_train, y_test = load_data()
     print(f"Train: {X_train.shape} | Test: {X_test.shape}")
 
-    with mlflow.start_run(run_name="RF_CI_run"):
+    with ctx:
         # Params
         params = {
             "n_estimators":      args.n_estimators,
@@ -94,8 +103,15 @@ def main():
         print(f"\nAccuracy: {acc:.4f} | Precision: {prec:.4f} | "
               f"Recall: {rec:.4f} | F1: {f1:.4f} | AUC: {auc:.4f}")
 
-        # Log model + artefak
-        mlflow.sklearn.log_model(model, "random_forest_model")
+        # Log model + signature
+        from mlflow.models.signature import infer_signature
+        signature = infer_signature(X_train, model.predict(X_train))
+        mlflow.sklearn.log_model(
+            model,
+            "random_forest_model",
+            signature=signature,
+            input_example=X_train.iloc[:5],
+        )
 
         # Confusion matrix
         cm = confusion_matrix(y_test, y_pred)
